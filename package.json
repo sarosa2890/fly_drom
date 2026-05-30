@@ -1,0 +1,8 @@
+{
+  "name": "fly-drom",
+  "version": "1.0.0",
+  "description": "Live flight monitoring with real data (OpenSky + adsbdb): map/satellite, search by flight number, route & destination path",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" }
+}

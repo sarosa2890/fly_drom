@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Мониторинг самолётов · Live</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="map"></div>
+
+  <div id="panel">
+    <h1>✈ Live мониторинг</h1>
+    <form id="searchForm">
+      <input id="flightInput" type="text" placeholder="Рейс" autocomplete="off" />
+      <button type="submit">Найти</button>
+    </form>
+    <div id="status">Загрузка живых данных…</div>
+    <div id="info"></div>
+  </div>
+
+  <div id="legend">Данные: OpenSky Network (позиции) · adsbdb (маршруты) — реальные, в реальном времени</div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
