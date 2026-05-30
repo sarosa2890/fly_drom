@@ -30,12 +30,15 @@ async function opensky(url) {
 const COLS = ['icao24','callsign','origin_country','time_position','last_contact','longitude','latitude','baro_altitude','on_ground','velocity','true_track','vertical_rate','sensors','geo_altitude','squawk','spi','position_source'];
 const toObj = (s) => { const o = {}; COLS.forEach((c, i) => o[c] = s[i]); o.callsign = (o.callsign || '').trim(); return o; };
 
-async function statesAll() {
-  const c = getC('states:all');
+// Fetch live states inside a bounding box (cheap; avoids the heavy global query).
+async function statesBbox(b) {
+  const key = `s:${b.lamin.toFixed(1)},${b.lomin.toFixed(1)},${b.lamax.toFixed(1)},${b.lomax.toFixed(1)}`;
+  const c = getC(key);
   if (c) return c;
-  const j = await opensky('https://opensky-network.org/api/states/all');
+  const qs = `?lamin=${b.lamin}&lomin=${b.lomin}&lamax=${b.lamax}&lomax=${b.lomax}`;
+  const j = await opensky('https://opensky-network.org/api/states/all' + qs);
   const list = (j.states || []).map(toObj).filter(s => s.longitude != null && s.latitude != null);
-  setC('states:all', list, 12000);
+  setC(key, list, 10000);
   return list;
 }
 
@@ -49,4 +52,4 @@ async function adsbdb(p) {
   return j;
 }
 
-module.exports = { statesAll, adsbdb };
+module.exports = { statesBbox, adsbdb };

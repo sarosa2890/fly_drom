@@ -3,7 +3,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { statesAll, adsbdb } = require('./api/_lib');
+const { statesBbox, adsbdb } = require('./api/_lib');
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC = path.join(__dirname, 'public');
@@ -18,12 +18,9 @@ const server = http.createServer(async (req, res) => {
   const q = u.searchParams;
   try {
     if (u.pathname === '/api/states') {
-      let list = await statesAll();
-      const f = ['lamin', 'lomin', 'lamax', 'lomax'].map(k => parseFloat(q.get(k)));
-      if (f.every(Number.isFinite)) {
-        const [lamin, lomin, lamax, lomax] = f;
-        list = list.filter(s => s.latitude >= lamin && s.latitude <= lamax && s.longitude >= lomin && s.longitude <= lomax);
-      }
+      const b = ['lamin', 'lomin', 'lamax', 'lomax'].reduce((o, k) => (o[k] = parseFloat(q.get(k)), o), {});
+      if (!Object.values(b).every(Number.isFinite)) return send(res, 400, { error: 'bbox required' });
+      const list = await statesBbox(b);
       return send(res, 200, { count: list.length, states: list });
     }
     if (u.pathname === '/api/route') {
@@ -43,8 +40,15 @@ const server = http.createServer(async (req, res) => {
       const fr = route && route.response && route.response.flightroute;
       const icao = fr ? fr.callsign_icao : cs.toUpperCase();
       const iata = fr ? fr.callsign_iata : '';
-      const list = await statesAll();
-      const state = list.find(s => s.callsign === icao || s.callsign === iata || s.callsign === cs.toUpperCase()) || null;
+      let state = null;
+      if (fr && fr.origin && fr.destination) {
+        const o = fr.origin, d = fr.destination, pad = 3;
+        const list = await statesBbox({
+          lamin: Math.min(o.latitude, d.latitude) - pad, lamax: Math.max(o.latitude, d.latitude) + pad,
+          lomin: Math.min(o.longitude, d.longitude) - pad, lomax: Math.max(o.longitude, d.longitude) + pad
+        });
+        state = list.find(s => s.callsign === icao || s.callsign === iata) || null;
+      }
       let aircraft = null;
       if (state) { const a = await adsbdb('aircraft/' + state.icao24); aircraft = a && a.response ? a.response.aircraft : null; }
       return send(res, 200, { flightroute: fr || null, state, aircraft });
