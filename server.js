@@ -3,7 +3,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { statesBbox, adsbdb } = require('./api/_lib');
+const { statesBbox, findCallsign, adsbdb } = require('./api/_lib');
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC = path.join(__dirname, 'public');
@@ -39,33 +39,11 @@ const server = http.createServer(async (req, res) => {
       const route = await adsbdb('callsign/' + encodeURIComponent(cs));
       const fr = route && route.response && route.response.flightroute;
       const icao = fr ? fr.callsign_icao : cs.toUpperCase();
-      const iata = fr ? fr.callsign_iata : '';
-      let state = null;
-      if (fr && fr.origin && fr.destination) {
-        const o = fr.origin, d = fr.destination, pad = 3;
-        const list = await statesBbox({
-          lamin: Math.min(o.latitude, d.latitude) - pad, lamax: Math.max(o.latitude, d.latitude) + pad,
-          lomin: Math.min(o.longitude, d.longitude) - pad, lomax: Math.max(o.longitude, d.longitude) + pad
-        });
-        state = list.find(s => s.callsign === icao || s.callsign === iata) || null;
-      }
+      let state = await findCallsign(icao);
+      if (!state && fr && fr.callsign_iata) state = await findCallsign(fr.callsign_iata);
       let aircraft = null;
       if (state) { const a = await adsbdb('aircraft/' + state.icao24); aircraft = a && a.response ? a.response.aircraft : null; }
       return send(res, 200, { flightroute: fr || null, state, aircraft });
-    }
-    if (u.pathname === '/api/diag') {
-      const out = { handler: 'server.js', hasCreds: !!(process.env.OPENSKY_CLIENT_ID && process.env.OPENSKY_CLIENT_SECRET), node: process.version };
-      const test = async (name, fn) => { try { out[name] = await fn(); } catch (e) { out[name] = { error: String(e.message || e), cause: String((e.cause && (e.cause.message || e.cause.code)) || e.cause || '') }; } };
-      await test('adsbdb', async () => ({ status: (await fetch('https://api.adsbdb.com/v0/callsign/SU2173')).status }));
-      if (out.hasCreds) await test('opensky_token', async () => {
-        const r = await fetch('https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token', {
-          method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({ grant_type: 'client_credentials', client_id: process.env.OPENSKY_CLIENT_ID, client_secret: process.env.OPENSKY_CLIENT_SECRET })
-        });
-        return { status: r.status };
-      });
-      await test('opensky_states', async () => ({ status: (await fetch('https://opensky-network.org/api/states/all?lamin=50&lomin=30&lamax=51&lomax=31')).status }));
-      return send(res, 200, out);
     }
     // static files
     const p = u.pathname === '/' ? '/index.html' : u.pathname;

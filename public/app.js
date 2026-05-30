@@ -7,7 +7,7 @@ const satellite = L.tileLayer(
   maxZoom: 19, attribution: 'Esri World Imagery'
 });
 
-const map = L.map('map', { center: [25, 10], zoom: 3, layers: [street], worldCopyJump: true });
+const map = L.map('map', { center: [50, 15], zoom: 5, layers: [street], worldCopyJump: true });
 L.control.layers({ 'Карта': street, 'Спутник': satellite }, null, { position: 'topright' }).addTo(map);
 
 const statusEl = document.getElementById('status');

@@ -1,45 +1,51 @@
-// Shared data layer: OpenSky (live positions) + adsbdb (routes/aircraft).
-// Used by both the local server (server.js) and the Vercel functions (api/*.js).
-const OS_ID = process.env.OPENSKY_CLIENT_ID;
-const OS_SECRET = process.env.OPENSKY_CLIENT_SECRET;
-
+// Data layer. Live positions: adsb.lol (reachable from cloud). Routes/aircraft: adsbdb.
+// (OpenSky was dropped: it firewalls datacenter IPs, so Vercel can't reach it.)
 const cache = new Map();
 const getC = (k) => { const e = cache.get(k); return e && e.exp > Date.now() ? e.val : null; };
 const setC = (k, v, ttl) => cache.set(k, { val: v, exp: Date.now() + ttl });
 
-let token = { val: null, exp: 0 };
-async function opensky(url) {
-  const headers = {};
-  if (OS_ID && OS_SECRET) {
-    if (token.exp < Date.now()) {
-      const r = await fetch('https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ grant_type: 'client_credentials', client_id: OS_ID, client_secret: OS_SECRET })
-      });
-      const j = await r.json();
-      token = { val: j.access_token, exp: Date.now() + (j.expires_in - 60) * 1000 };
-    }
-    headers.Authorization = 'Bearer ' + token.val;
-  }
-  const res = await fetch(url, { headers });
-  if (!res.ok) throw new Error('OpenSky HTTP ' + res.status);
-  return res.json();
+// Map an adsb.lol aircraft to the shape the frontend expects.
+const FT_M = 0.3048, KT_MS = 0.514444;
+function mapAc(a) {
+  const ground = a.alt_baro === 'ground';
+  return {
+    icao24: a.hex,
+    callsign: (a.flight || '').trim(),
+    origin_country: '',
+    longitude: a.lon, latitude: a.lat,
+    baro_altitude: ground ? 0 : (typeof a.alt_baro === 'number' ? a.alt_baro * FT_M : null),
+    on_ground: ground,
+    velocity: a.gs != null ? a.gs * KT_MS : null,
+    true_track: a.track ?? a.true_heading ?? a.mag_heading ?? 0,
+    vertical_rate: a.baro_rate != null ? a.baro_rate * FT_M / 60 : null
+  };
 }
 
-const COLS = ['icao24','callsign','origin_country','time_position','last_contact','longitude','latitude','baro_altitude','on_ground','velocity','true_track','vertical_rate','sensors','geo_altitude','squawk','spi','position_source'];
-const toObj = (s) => { const o = {}; COLS.forEach((c, i) => o[c] = s[i]); o.callsign = (o.callsign || '').trim(); return o; };
+async function adsbGet(p) {
+  const r = await fetch('https://api.adsb.lol/v2/' + p, { headers: { Accept: 'application/json' } });
+  if (!r.ok) throw new Error('adsb.lol HTTP ' + r.status);
+  const j = await r.json();
+  return (j.ac || []).filter(a => a.lat != null && a.lon != null).map(mapAc);
+}
 
-// Fetch live states inside a bounding box (cheap; avoids the heavy global query).
+// Live states within a bounding box (queried as a point+radius, then clipped to the box).
 async function statesBbox(b) {
   const key = `s:${b.lamin.toFixed(1)},${b.lomin.toFixed(1)},${b.lamax.toFixed(1)},${b.lomax.toFixed(1)}`;
   const c = getC(key);
   if (c) return c;
-  const qs = `?lamin=${b.lamin}&lomin=${b.lomin}&lamax=${b.lamax}&lomax=${b.lomax}`;
-  const j = await opensky('https://opensky-network.org/api/states/all' + qs);
-  const list = (j.states || []).map(toObj).filter(s => s.longitude != null && s.latitude != null);
-  setC(key, list, 10000);
+  const lat = (b.lamin + b.lamax) / 2, lon = (b.lomin + b.lomax) / 2;
+  const latNm = (b.lamax - b.lamin) * 60, lonNm = (b.lomax - b.lomin) * 60 * Math.cos(lat * Math.PI / 180);
+  const dist = Math.min(Math.max(Math.ceil(Math.sqrt(latNm * latNm + lonNm * lonNm) / 2), 25), 1000);
+  let list = await adsbGet(`lat/${lat.toFixed(4)}/lon/${lon.toFixed(4)}/dist/${dist}`);
+  list = list.filter(s => s.latitude >= b.lamin && s.latitude <= b.lamax && s.longitude >= b.lomin && s.longitude <= b.lomax);
+  setC(key, list, 8000);
   return list;
+}
+
+// Find a live aircraft by ICAO/IATA callsign.
+async function findCallsign(cs) {
+  const list = await adsbGet('callsign/' + encodeURIComponent(cs));
+  return list[0] || null;
 }
 
 async function adsbdb(p) {
@@ -52,4 +58,4 @@ async function adsbdb(p) {
   return j;
 }
 
-module.exports = { statesBbox, adsbdb };
+module.exports = { statesBbox, findCallsign, adsbdb };

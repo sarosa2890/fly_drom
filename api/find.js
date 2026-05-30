@@ -1,4 +1,4 @@
-const { statesBbox, adsbdb } = require('./_lib');
+const { findCallsign, adsbdb } = require('./_lib');
 module.exports = async (req, res) => {
   try {
     const cs = (req.query.flight || '').trim();
@@ -6,16 +6,8 @@ module.exports = async (req, res) => {
     const route = await adsbdb('callsign/' + encodeURIComponent(cs));
     const fr = route && route.response && route.response.flightroute;
     const icao = fr ? fr.callsign_icao : cs.toUpperCase();
-    const iata = fr ? fr.callsign_iata : '';
-    let state = null;
-    if (fr && fr.origin && fr.destination) {
-      const o = fr.origin, d = fr.destination, pad = 3;
-      const list = await statesBbox({
-        lamin: Math.min(o.latitude, d.latitude) - pad, lamax: Math.max(o.latitude, d.latitude) + pad,
-        lomin: Math.min(o.longitude, d.longitude) - pad, lomax: Math.max(o.longitude, d.longitude) + pad
-      });
-      state = list.find(s => s.callsign === icao || s.callsign === iata) || null;
-    }
+    let state = await findCallsign(icao);
+    if (!state && fr && fr.callsign_iata) state = await findCallsign(fr.callsign_iata);
     let aircraft = null;
     if (state) { const a = await adsbdb('aircraft/' + state.icao24); aircraft = a && a.response ? a.response.aircraft : null; }
     res.status(200).json({ flightroute: fr || null, state, aircraft });
