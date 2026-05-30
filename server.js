@@ -53,6 +53,20 @@ const server = http.createServer(async (req, res) => {
       if (state) { const a = await adsbdb('aircraft/' + state.icao24); aircraft = a && a.response ? a.response.aircraft : null; }
       return send(res, 200, { flightroute: fr || null, state, aircraft });
     }
+    if (u.pathname === '/api/diag') {
+      const out = { handler: 'server.js', hasCreds: !!(process.env.OPENSKY_CLIENT_ID && process.env.OPENSKY_CLIENT_SECRET), node: process.version };
+      const test = async (name, fn) => { try { out[name] = await fn(); } catch (e) { out[name] = { error: String(e.message || e), cause: String((e.cause && (e.cause.message || e.cause.code)) || e.cause || '') }; } };
+      await test('adsbdb', async () => ({ status: (await fetch('https://api.adsbdb.com/v0/callsign/SU2173')).status }));
+      if (out.hasCreds) await test('opensky_token', async () => {
+        const r = await fetch('https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token', {
+          method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ grant_type: 'client_credentials', client_id: process.env.OPENSKY_CLIENT_ID, client_secret: process.env.OPENSKY_CLIENT_SECRET })
+        });
+        return { status: r.status };
+      });
+      await test('opensky_states', async () => ({ status: (await fetch('https://opensky-network.org/api/states/all?lamin=50&lomin=30&lamax=51&lomax=31')).status }));
+      return send(res, 200, out);
+    }
     // static files
     const p = u.pathname === '/' ? '/index.html' : u.pathname;
     const file = path.join(PUBLIC, path.normalize(p).replace(/^(\.\.[/\\])+/, ''));
